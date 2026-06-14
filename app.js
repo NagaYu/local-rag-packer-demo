@@ -22,6 +22,13 @@
   const TRANSFORMERS_URL =
     'https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.0.2';
 
+  // Lead capture for "Request pilot access". Paste a form endpoint that accepts a
+  // JSON POST and returns 200 (e.g. Formspree: https://formspree.io/f/XXXX, or a
+  // Tally/Make webhook). While empty, the pilot CTA stays hidden so the public demo
+  // looks clean. This only ever sends what the visitor types in the form — never
+  // any document content.
+  const PILOT_FORM_ENDPOINT = '';
+
   // =====================================================================
   //  i18n
   // =====================================================================
@@ -55,6 +62,19 @@
       'export.sqlite': '⬇ Export SQLite (.sqlite)',
       'export.note': "Files are saved locally through your browser's download. Nothing is ever uploaded.",
       'preview.summary': 'Output schema preview',
+      'cta.pilot': 'Request pilot access',
+      'modal.title': 'Request pilot access',
+      'modal.subtitle': "Tell us about your use case — we'll reach out about a pilot.",
+      'modal.email': 'Work email',
+      'modal.company': 'Company',
+      'modal.usecase': 'Use case (optional)',
+      'modal.submit': 'Send request',
+      'modal.cancel': 'Cancel',
+      'modal.sending': 'Sending…',
+      'modal.success': "Thanks! We'll be in touch shortly.",
+      'modal.error': "Couldn't send — please email us at the address on the listing.",
+      'modal.privacy': 'This form sends only what you type here. Your documents are never uploaded.',
+      'modal.emailRequired': 'Please enter a valid email.',
       // dynamic
       'net.idle': 'No data uploaded',
       'net.fetching': 'Fetching model from CDN (one-time)…',
@@ -112,6 +132,19 @@
       'export.sqlite': '⬇ SQLite を書き出す (.sqlite)',
       'export.note': 'ファイルはブラウザのダウンロード経由でローカルに直接保存されます。アップロードは一切行われません。',
       'preview.summary': '出力スキーマ・プレビュー',
+      'cta.pilot': 'パイロット利用を申し込む',
+      'modal.title': 'パイロット利用の申し込み',
+      'modal.subtitle': 'ユースケースを教えてください。パイロットについてご連絡します。',
+      'modal.email': '業務メールアドレス',
+      'modal.company': '会社名',
+      'modal.usecase': 'ユースケース（任意）',
+      'modal.submit': '送信する',
+      'modal.cancel': 'キャンセル',
+      'modal.sending': '送信中…',
+      'modal.success': 'ありがとうございます。追ってご連絡します。',
+      'modal.error': '送信できませんでした。掲載のメールアドレスへご連絡ください。',
+      'modal.privacy': 'このフォームは入力内容のみを送信します。文書がアップロードされることはありません。',
+      'modal.emailRequired': '有効なメールアドレスを入力してください。',
       // dynamic
       'net.idle': 'データ未送信',
       'net.fetching': 'モデルを取得中（初回のみ）…',
@@ -158,6 +191,9 @@
     });
     document.querySelectorAll('[data-i18n-html]').forEach((el) => {
       el.innerHTML = t(el.getAttribute('data-i18n-html'));
+    });
+    document.querySelectorAll('[data-i18n-ph]').forEach((el) => {
+      el.setAttribute('placeholder', t(el.getAttribute('data-i18n-ph')));
     });
     document.querySelectorAll('#lang-toggle .lang-btn').forEach((b) => {
       b.classList.toggle('active', b.dataset.lang === lang);
@@ -207,6 +243,18 @@
     netIndicator: $('net-indicator'),
     langToggle: $('lang-toggle'),
     toast: $('toast'),
+    // pilot CTA + modal
+    ctaHero: $('cta-pilot-hero'),
+    ctaResult: $('cta-pilot-result'),
+    pilotModal: $('pilot-modal'),
+    pilotBackdrop: $('pilot-backdrop'),
+    pilotForm: $('pilot-form'),
+    pilotEmail: $('pilot-email'),
+    pilotCompany: $('pilot-company'),
+    pilotUsecase: $('pilot-usecase'),
+    pilotSubmit: $('pilot-submit'),
+    pilotCancel: $('pilot-cancel'),
+    pilotStatus: $('pilot-status'),
   };
 
   // ---------- App state ----------
@@ -865,9 +913,73 @@
     if (btn) switchLang(btn.dataset.lang);
   });
 
+  // =====================================================================
+  //  Pilot CTA + lead-capture modal
+  // =====================================================================
+  function initPilotCTA() {
+    if (!PILOT_FORM_ENDPOINT) return; // keep CTA hidden until an endpoint is set
+    [els.ctaHero, els.ctaResult].forEach((b) => b && b.classList.remove('hidden'));
+  }
+  function openPilotModal() {
+    if (!els.pilotModal) return;
+    els.pilotStatus.textContent = '';
+    els.pilotStatus.className = 'mt-3 text-xs';
+    show(els.pilotModal);
+    setTimeout(() => els.pilotEmail && els.pilotEmail.focus(), 50);
+  }
+  function closePilotModal() { if (els.pilotModal) hide(els.pilotModal); }
+
+  async function submitPilot(e) {
+    e.preventDefault();
+    const email = (els.pilotEmail.value || '').trim();
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
+      els.pilotStatus.textContent = t('modal.emailRequired');
+      els.pilotStatus.className = 'mt-3 text-xs text-danger';
+      return;
+    }
+    const payload = {
+      email,
+      company: (els.pilotCompany.value || '').trim(),
+      use_case: (els.pilotUsecase.value || '').trim(),
+      source: 'live-demo',
+      page: location.href,
+    };
+    els.pilotSubmit.disabled = true;
+    els.pilotStatus.textContent = t('modal.sending');
+    els.pilotStatus.className = 'mt-3 text-xs text-slate-400';
+    try {
+      const res = await fetch(PILOT_FORM_ENDPOINT, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) throw new Error('bad status ' + res.status);
+      els.pilotStatus.textContent = t('modal.success');
+      els.pilotStatus.className = 'mt-3 text-xs text-neon';
+      els.pilotForm.reset();
+      setTimeout(closePilotModal, 1800);
+    } catch (err) {
+      console.error('pilot submit failed', err);
+      els.pilotStatus.textContent = t('modal.error');
+      els.pilotStatus.className = 'mt-3 text-xs text-danger';
+    } finally {
+      els.pilotSubmit.disabled = false;
+    }
+  }
+
+  if (els.ctaHero) els.ctaHero.addEventListener('click', openPilotModal);
+  if (els.ctaResult) els.ctaResult.addEventListener('click', openPilotModal);
+  if (els.pilotCancel) els.pilotCancel.addEventListener('click', closePilotModal);
+  if (els.pilotBackdrop) els.pilotBackdrop.addEventListener('click', closePilotModal);
+  if (els.pilotForm) els.pilotForm.addEventListener('submit', submitPilot);
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && els.pilotModal && !els.pilotModal.classList.contains('hidden')) closePilotModal();
+  });
+
   // initial paint
   applyStaticI18n();
   markNet('net.idle', 'idle');
+  initPilotCTA();
 
   // backend hint before any run
   (async () => {
